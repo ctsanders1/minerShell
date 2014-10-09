@@ -1,11 +1,38 @@
 #!/usr/bin/python
 
+# Written by Eric Park, Oct 2014
+#
+# MinerShell's purpose is to be able to remotely manage and keep tabs on
+# crypto coin hosts.
+#
+
 import sys, subprocess, time, urllib2, socket, getopt, io
 import threading, Queue, json
 import re, datetime, os, platform
 
+# Global Variables
+
+# Miner process being controlled by shell (if not in server or command mode)
 MinerProcess = None
 
+# Default Config
+
+minerConfig = { 
+"useSendCube" : "False",
+"sendCubePath" : "/opt/scripts/sendCube.py",
+"shellPort" : 5001,
+"serverPort" : 5002,
+"miner" : "/usr/local/bin/minerd",
+"minerOpts" : ( "-a", "scrypt", "--retry-pause=120", "--url=stratum+tcp://ltc.mupool.com" )
+}
+
+# Config Pathes
+UnixGlobalConf = "/etc/minerShell.conf"
+UnixUserConf = "~/.minerShell.conf"
+Win32GlobalConf = "HKLM\\Software\minerShell"
+Win32UserConf = "HKCU\\Software\minerShell"
+
+# Statistics Class (Maybe replaced by Python stats library later)
 class Statistic:
 	# Initialize Instance
 	def __init__(self):
@@ -58,6 +85,7 @@ class Statistic:
 
 		return lastPeriod
 
+# Determine if file exists
 def FileExists(fileName):
 	flag=False
 
@@ -77,6 +105,12 @@ def Is64():
 # Is Architecture Unix (or at least, non windows)
 def Unix():
 	return (not sys.platform.startswith('win32'))
+
+# ****
+# The next few functions are specific to 3D LED Cube control for indicating
+# hash submissions. This includes silencing the demo patterns at night.
+# But not the submission alert.
+#
 
 # Determine NightTime
 def IsNightTime():
@@ -108,6 +142,9 @@ def SignalAccept(nightMode):
 
 	return
 
+# *** End 3D Cube Controls
+
+# Log Output
 def Log(line, statObj = None, logName="/tmp/miner.log"):
 	fp = open(logName,"a")
 	fp.write(line)
@@ -122,19 +159,24 @@ def Log(line, statObj = None, logName="/tmp/miner.log"):
 # Usage
 def Usage():
 	print "minerShell.py [-l] [-p|--pool <poolname>] [-t|--threads <threadcount>] [-i]"
-	print "-l\tEnable logging to /tmp/miner.log"
-	print "-i\tImmediate execution"
-	print "-p\tPool Name"
-	print "-t\tThreads"
-	print "-x\tTest, execute all commands, but do not run miner"
+	print "-l\t\tEnable logging to /tmp/miner.log"
+	print "-i\t\tImmediate execution"
+	print "-p\t\tPool Name"
+	print "-t\t\tMiner Threads"
+	print "-x\t\tTest, execute all commands, but do not run miner"
+	print "--server\tEnter server mode"
+	print "--config\tUse config file"
+	print "--cmd\tEnter command mode"
 	return
 
 # Convert
+# Convert data sent over the network into plain strings
 def Convert(data):
-	return repr(data).strip("'").replace(" ","")
+	return (repr(data).strip("'")
+	#return repr(data).strip("'").replace(" ","")
 
-# Start Server
-def StartServer():
+# Start Miner Monitor
+def StartMinerMonitor():
 	Host = ""
 	Port = 5001
 	
@@ -184,6 +226,28 @@ def ProcessCmds(listeningSocket):
 		Log(str(msg))
 
 	return
+	
+# Load Settings
+def LoadSettings():
+	Global minerConfig
+	conf = None
+	
+	if Unix():
+		fp = None
+		if FileExists(UnixGlobalConf):
+			fp = open(UnixGlobalConf)
+		else if FileExists(UnixUserConf):
+			fp = open(UnixUSerConf)
+			
+		if fp != None:
+			conf = json.load(fp)
+			fp.close()
+			
+		if conf != None:
+			# Merge/overwrite
+			pass
+	else:
+		pass
 
 # Miner Shell Procedure
 def minerShell(args):
@@ -193,16 +257,23 @@ def minerShell(args):
 	logging = False
 	terminate = False
 	cubeAvailable = True
-	userName = "ejohnfel"
-	password = "qw3rty"
+	userName = ""
+	password = ""
 	pool = "Common"
 	userpass=""
 	pause=True
-
-	minerOpts = ["/usr/local/bin/minerd","-a","scrypt","--retry-pause=120","--url=stratum+tcp://ltc.mupool.com"]
+		
+	LoadSettings()
+		
+	minerOpts = [ minerConfig["miner"] ]
+	
+	for item in minerConfig["minerOpts"]:
+		minerOpts.append(item)
+			
+	# minerOpts = ["/usr/local/bin/minerd","-a","scrypt","--retry-pause=120","--url=stratum+tcp://ltc.mupool.com"]
 
 	try:
-		opts, argList = getopt.getopt(args,"hp:t:ilx",["pool","threads"])
+		opts, argList = getopt.getopt(args,"hp:t:ilx",["pool","threads","server","cmd","config"])
 	except getopt.GetoptError:
 		if len(args) > 0:
 			Usage()
@@ -248,7 +319,7 @@ def minerShell(args):
 		if logging:
 			Log('Logging Began : {0}'.format(datetime.datetime.now()))
 
-		listeningSocket = StartServer()
+		listeningSocket = StartMinerMonitor()
 
 		while terminate != True:
 			if IsNightTime():
