@@ -3,7 +3,7 @@
 # Written by Eric Park, Oct 2014
 #
 # MinerShell's purpose is to be able to remotely manage and keep tabs on
-# crypto coin hosts.
+# crypto coin hashing hosts.
 #
 
 import sys, subprocess, time, urllib2, socket, getopt, io
@@ -18,7 +18,7 @@ MinerProcess = None
 # Default Config
 
 minerConfig = { 
-"useSendCube" : "False",
+"useSendCube" : False,
 "sendCubePath" : "/opt/scripts/sendCube.py",
 "shellPort" : 5001,
 "serverPort" : 5002,
@@ -129,7 +129,7 @@ def SendCube(cmds):
 
 		subprocess.call(cmdList) 
 
-# Signal and Accepted Hash
+# Signal an Accepted Hash
 def SignalAccept(nightMode):
 	SendCube(["pattern","9"])
 
@@ -172,13 +172,15 @@ def Usage():
 # Convert
 # Convert data sent over the network into plain strings
 def Convert(data):
-	return (repr(data).strip("'")
+	return (repr(data).strip("'"))
 	#return repr(data).strip("'").replace(" ","")
 
 # Start Miner Monitor
 def StartMinerMonitor():
+	global minerConfig
+	
 	Host = ""
-	Port = 5001
+	Port = minerConfig["shellPort"]
 	
 	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	s.bind((Host, Port))
@@ -190,7 +192,8 @@ def StartMinerMonitor():
 # Process Net Commands
 def ProcessCmds(listeningSocket):
 	global MinerProcess
-
+	global minerConfig
+	
 	try:
 		conn, addr = listeningSocket.accept()
 
@@ -229,14 +232,14 @@ def ProcessCmds(listeningSocket):
 	
 # Load Settings
 def LoadSettings():
-	Global minerConfig
+	global minerConfig
 	conf = None
 	
 	if Unix():
 		fp = None
 		if FileExists(UnixGlobalConf):
 			fp = open(UnixGlobalConf)
-		else if FileExists(UnixUserConf):
+		elif FileExists(UnixUserConf):
 			fp = open(UnixUSerConf)
 			
 		if fp != None:
@@ -249,19 +252,81 @@ def LoadSettings():
 	else:
 		pass
 
+# Save Settings
+def SaveSettings(savePath):
+	return
+
+# Settings Shell	
+def SettingsShell():
+	global minerConfig
+	
+	buffer = ""
+	
+	while buffer != "quit":
+		buffer = raw_input("> ")
+		args = buffer.split(" ")
+		
+		if args[0] == "save":
+			if args[1] == "global":
+				if Unix():
+					# Save /etc
+					pass
+				else:
+					# Save HKLM
+					pass
+			elif args[1] == "local":
+				if Unix():
+					# Save ~/.minerShell.conf
+					pass
+				else:
+					# Save HKCU
+					pass
+			else:
+				# Save as file arg[1] is the filename
+				pass
+		elif args[0] == "load":
+			if args[1] == "global":
+				if Unix():
+					# Load from /etc
+					pass
+				else:
+					# Load from HKLM
+					pass
+			elif args[1] == "local":
+				if Unix():
+					# Load from ~/.minerShell.conf
+					pass
+				else:
+					# Load from HKCU
+					pass
+		elif args[0] == "print":
+			for item in minerConfig:
+				print item, "\t", minerConfig[item]
+		elif args[0] == "set":
+			minerConfig[args[1]] = eval(args[2])
+		elif args[0] == "help":
+			print "Save Config\tsave [local|global|filename]"
+			print "Load Config\tload [local|global|filename]"
+			print "Print Config\tprint"
+			print "Set Field\tset [fieldname] [value]"
+			
+	return
+	
 # Miner Shell Procedure
 def minerShell(args):
 	global MinerProcess
+	global minerConfig
+	
 	nightMode = IsNightTime()
 	testMode = False
 	logging = False
 	terminate = False
-	cubeAvailable = True
 	userName = ""
 	password = ""
 	pool = "Common"
 	userpass=""
 	pause=True
+	listeningSocket = None
 		
 	LoadSettings()
 		
@@ -273,7 +338,7 @@ def minerShell(args):
 	# minerOpts = ["/usr/local/bin/minerd","-a","scrypt","--retry-pause=120","--url=stratum+tcp://ltc.mupool.com"]
 
 	try:
-		opts, argList = getopt.getopt(args,"hp:t:ilx",["pool","threads","server","cmd","config"])
+		opts, argList = getopt.getopt(args,"shp:t:ilx",["pool","threads","server","cmd","config"])
 	except getopt.GetoptError:
 		if len(args) > 0:
 			Usage()
@@ -296,12 +361,15 @@ def minerShell(args):
 			logging = True
 		elif opt in ("-x"):
 			testMode = True
+		elif opt in ("-s"):
+			testMode = True
+			SettingsShell()
 
 	if (userpass == ""):
 		userpass='--userpass={0}.{1}:{2}'.format(userName,pool,password)
 		minerOpts.append(userpass)
 
-	if pause:
+	if pause and not testMode:
 		print("Sleeping for Delay")
 		time.sleep(1*60)
 
@@ -344,7 +412,7 @@ def minerShell(args):
 					Log("Hash Stats :", kHashStat)
 			elif re.search("accepted",line) != None:
 				acceptedStat.Step(1)
-				if cubeAvailable:
+				if minerConfig["useSendCube"]:
 					SignalAccept(nightMode)
 				if logging:
 					Log(line,acceptedStat)
@@ -360,9 +428,12 @@ def minerShell(args):
 
 			if MinerProcess.returncode != None:
 				terminate = True
+	else:
+		pass
 
-	listeningSocket.shutdown(socket.SHUT_RDWR)
-	listeningSocket.close()
+	if listeningSocket != None:
+		listeningSocket.shutdown(socket.SHUT_RDWR)
+		listeningSocket.close()
 
 	return
 
